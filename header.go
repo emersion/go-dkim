@@ -130,10 +130,12 @@ func newHeaderPicker(h header) *headerPicker {
 
 func (p *headerPicker) Pick(key string) string {
 	at := p.picked[key]
+	loverKey := strings.ToLower(key)
 	for i := len(p.h) - 1; i >= 0; i-- {
 		kv := p.h[i]
 		k, _ := parseHeaderField(kv)
-		if k != key {
+
+		if strings.ToLower(k) != loverKey {
 			continue
 		}
 
