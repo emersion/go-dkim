@@ -10,8 +10,34 @@ import (
 )
 
 const crlf = "\r\n"
+const headSep = crlf + "\t"
+
+var headersPos = []string{"v", "a", "c", "d", "i", "q", "s", "t", "h", "bh", "b"}
 
 type header []string
+
+type dkimHeaderKeys []string
+
+func (h dkimHeaderKeys) Len() int {
+	return len(h)
+}
+
+func (h dkimHeaderKeys) Less(i, j int) bool {
+	var idxI, idxJ = 0, 1
+	for idx, v := range headersPos {
+		if v == h[i] {
+			idxI = idx
+		}
+		if v == h[j] {
+			idxJ = idx
+		}
+	}
+	return idxI < idxJ
+}
+
+func (h dkimHeaderKeys) Swap(i, j int) {
+	h[i], h[j] = h[j], h[i]
+}
 
 func readHeader(r *bufio.Reader) (header, error) {
 	tr := textproto.NewReader(r)
@@ -72,35 +98,22 @@ func parseHeaderParams(s string) (map[string]string, error) {
 	return params, nil
 }
 
-func formatHeaderParams(params map[string]string) string {
-	keys := make([]string, 0, len(params))
-	found := false
+func formatHeaderParams(params map[string]string) []string {
+	keys := make(dkimHeaderKeys, 0, len(params))
 	for k := range params {
 		if k == "b" {
-			found = true
+			continue
 		} else {
 			keys = append(keys, k)
 		}
 	}
-	sort.Strings(keys)
-	if found {
-		keys = append(keys, "b")
-	}
-
-	var s string
-	first := true
+	sort.Sort(keys)
+	headers := make([]string, 0, len(params))
 	for _, k := range keys {
 		v := params[k]
-
-		if first {
-			first = false
-		} else {
-			s += " "
-		}
-
-		s += k + "=" + v + ";"
+		headers = append(headers, k+"="+v+"; ")
 	}
-	return s
+	return headers
 }
 
 type headerPicker struct {
