@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 var randReader io.Reader = rand.Reader
@@ -182,7 +183,6 @@ func Sign(w io.Writer, r io.Reader, options *SignOptions) error {
 		if kv == "" {
 			continue
 		}
-
 		kv = canonicalizers[headerCan].CanonicalizeHeader(kv)
 		if _, err := hasher.Write([]byte(kv)); err != nil {
 			return err
@@ -218,25 +218,81 @@ func Sign(w io.Writer, r io.Reader, options *SignOptions) error {
 
 func formatSignature(params map[string]string) string {
 	var fold strings.Builder
-	sig := "DKIM-Signature: " + formatHeaderParams(params) + crlf
-	buf := bytes.NewBufferString(sig)
-	line := make([]byte, 75) // 78 - len("\r\n\s")
-	first := true
-	for len, err := buf.Read(line); err != io.EOF; len, err = buf.Read(line) {
-		if first {
-			first = false
-		} else {
-			fold.WriteString("\r\n ")
-		}
-		fold.Write(line[:len])
+	var maxLen = 58
+	var headers = formatHeaderParams(params)
+	fold.WriteString("DKIM-Signature: ")
+	writeHeaders(&fold, headers, maxLen)
+	if v, ok := params["b"]; ok {
+		fold.WriteString(headSep)
+		fold.WriteString(strings.Join(ChunkString("b="+v, maxLen-3), headSep))
 	}
+	fold.WriteString(crlf)
 	return fold.String()
 }
 
+func writeHeaders(to io.Writer, headers []string, maxLen int) {
+	var iternalStringBuf bytes.Buffer
+	var header string
+
+	for len(headers) != 0 {
+		// pop-left header
+		header, headers = headers[0], headers[1:]
+		bufSize := iternalStringBuf.Len()
+		headerSize := utf8.RuneCountInString(header)
+		switch {
+		case (bufSize + headerSize) <= maxLen:
+			iternalStringBuf.WriteString(header)
+			if iternalStringBuf.Len() == maxLen {
+				to.Write(iternalStringBuf.Bytes())
+				iternalStringBuf.Reset()
+				iternalStringBuf.WriteString(headSep)
+			}
+
+		case (bufSize + headerSize) > maxLen:
+			to.Write(iternalStringBuf.Bytes())
+			iternalStringBuf.Reset()
+			iternalStringBuf.WriteString(headSep)
+			fallthrough
+
+		default:
+			if headerSize < maxLen {
+				iternalStringBuf.WriteString(header)
+
+			} else {
+				// otherwise
+				// in case when current header gt maxLen
+				// split header to part and set parts in head of slice
+				to.Write(iternalStringBuf.Bytes())
+				iternalStringBuf.Reset()
+				headers = append(ChunkString(header, maxLen-3), headers...)
+			}
+		}
+	}
+	to.Write(iternalStringBuf.Bytes())
+}
+
 func formatTagList(l []string) string {
-	return strings.Join(l, ":")
+	return strings.Join(l, ": ")
 }
 
 func formatTime(t time.Time) string {
 	return strconv.FormatInt(t.Unix(), 10)
+}
+
+func ChunkString(s string, chunkSize int) []string {
+	var chunks []string
+	runes := []rune(s)
+
+	if len(runes) == 0 {
+		return []string{s}
+	}
+
+	for i := 0; i < len(runes); i += chunkSize {
+		nn := i + chunkSize
+		if nn > len(runes) {
+			nn = len(runes)
+		}
+		chunks = append(chunks, string(runes[i:nn]))
+	}
+	return chunks
 }
