@@ -6,6 +6,8 @@
 
 A Go library to create and verify [DKIM signatures](https://tools.ietf.org/html/rfc6376).
 
+> **Note**: this repository has been migrated to https://github.com/emersion/go-msgauth
+
 ## Usage
 
 ### Sign
